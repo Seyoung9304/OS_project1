@@ -5,7 +5,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #pragma warning (disable:4996)
 #define QSIZE 20
-#define TIME 1000
+#define TIME 10000
 
 typedef struct timenode {
     int burst_time;
@@ -132,19 +132,24 @@ int main() {
     Get contents from file
     */
     char temp;
-    temp = fgetc(fp);
+    char countbuf[5] = { NULL };
+    int len = 0;
+    while (1) {
+        temp = fgetc(fp);
+        if (temp == '\n')
+            break;
+        countbuf[len++] = temp;
+    }
+    int total_process = atoi(countbuf);
+    Process* pcs = (Process*)malloc(sizeof(Process) * total_process);
+
     int pcount = 0;
     int menu = 0;
-    int total_process = atoi(&temp);
-
-    Process* pcs = (Process*)malloc(sizeof(Process) * total_process);
-    fgetc(fp); //#of Ps 받은 뒤 나오는 엔터 받고 버리기
-
     int cyclecnt = 0;
     TN* CPUcur = NULL;
     TN* IOcur = NULL; //타임노드 current 가르킬 포인터
     char buffer[10] = { NULL };
-    int len = 0;
+    len = 0;
     while (pcount < total_process) { //프로세스 정보 받아서 각 구조체에 저장
         temp = fgetc(fp);
         if (temp == '\t' || temp ==' ' || temp=='\n') {
@@ -257,6 +262,22 @@ int main() {
             }
         }
 
+        //RUNNING=3인 경우(SRTN 실행중이던 경우) - preemption 검사 & 실행중인 프로세스 바꾸기
+        if (RUNNING == 3) {
+            if (SRTN!=NULL && SRTN->next != NULL && SRTN->next->pid != now_running_srtn->pid && now_running_srtn->remain > SRTN->next->remain) { //preemption 필요. SRTN큐 실행중에는 Q0, Q1에 새 프로세스 생겨도 SRTN 우선..?
+                //now running srtn 찾기 + STRN 큐에서 빼기
+                P_element* temp = SRTN->next;
+                while (temp->next != NULL) {
+                    if (temp->next->pid == now_running_srtn->pid)
+                        break;
+                }
+                temp->next = temp->next->next;
+                now_running->arrivalT = curTIME;
+                now_running->RQnumber++;
+                enque(FCFS, now_running->pid);
+                RUNNING = 0;
+            }
+        }
 
         
         //2. Q0부터 Q3까지 훑고 내려가면서 실행
@@ -264,12 +285,12 @@ int main() {
         if (RUNNING == 0) {
             TQ = 0;
             if (!is_empty(RR_2)) {
-                pid_temp = RR_2->arr[RR_2->head + 1];
+                pid_temp = RR_2->arr[(RR_2->head + 1)%QSIZE];
                 now_running = find_process_by_id(pcs, total_process, pid_temp);
                 RUNNING = 1;
             }
             else if (!is_empty(RR_6)) {
-                pid_temp = RR_6->arr[RR_6->head + 1];
+                pid_temp = RR_6->arr[(RR_6->head + 1)%QSIZE];
                 now_running = find_process_by_id(pcs, total_process, pid_temp);
                 RUNNING = 2;
             }
@@ -278,7 +299,7 @@ int main() {
                 RUNNING = 3;
             }
             else if (!is_empty(FCFS)) {
-                pid_temp = FCFS->arr[FCFS->head + 1];
+                pid_temp = FCFS->arr[(FCFS->head + 1)%QSIZE];
                 now_running = find_process_by_id(pcs, total_process, pid_temp);
                 RUNNING = 4;
             }
@@ -286,7 +307,7 @@ int main() {
                 RUNNING = 0; //큐 비어있음
         }
         if (RUNNING == 1) {
-            if (TQ < 2) { //NOTE: 원래는 TQ<2였당.......
+            if (TQ < 2) { 
                 //CPUtime-->0인지 검사
                 //0아니면 TQ++
                 //0이면 Deque&awake시간 설정하기(arrivalT)&RUNNING=0
@@ -352,12 +373,12 @@ int main() {
             int tpid = now_running_srtn->pid;
             now_running = find_process_by_id(pcs, total_process, tpid);
             gantt_record[curTIME] = tpid;
-            if (SRTN->next != NULL && SRTN->next->pid != tpid && now_running_srtn->remain - 1 > SRTN->next->remain ) { //preemption 필요. SRTN큐 실행중에는 Q0, Q1에 새 프로세스 생겨도 SRTN 우선..?
-                SRTN->next->next = SRTN->next->next->next;
-                now_running->arrivalT = curTIME + 1;
-                now_running->RQnumber++;
-                RUNNING = 0;
-            }
+            //if (SRTN!=NULL && SRTN->next != NULL && SRTN->next->pid != tpid && now_running_srtn->remain - 1 > SRTN->next->remain ) { //preemption 필요. SRTN큐 실행중에는 Q0, Q1에 새 프로세스 생겨도 SRTN 우선..?
+            //    SRTN->next->next = SRTN->next->next->next;
+            //    now_running->arrivalT = curTIME + 1;
+            //    now_running->RQnumber++;
+            //    RUNNING = 0;
+            //}
             if (TQ == 0)
                 now_running->waitT += (curTIME - now_running->arrivalT);
             if (--now_running->CPUbt.next->burst_time == 0) {
@@ -370,7 +391,7 @@ int main() {
                 }
                 else
                     now_running->TT = curTIME - now_running->AT + 1;
-                SRTN->next = now_running_srtn->next;
+                SRTN->next = SRTN->next->next;
             }
             else 
                 TQ++;
